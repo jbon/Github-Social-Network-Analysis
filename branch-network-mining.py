@@ -10,6 +10,7 @@
 # Homepage: http://www.openp2pdesign.org
 #
 # Requisite: 
+
 # install pyGithub with pip install PyGithub
 # install pygithub3 with pip install pygithub3
 # install NetworkX with pip install networkx
@@ -32,6 +33,9 @@ import getpass
 import random
 import os
 import sys
+import requests
+
+
 
 # Clear screen
 os.system('cls' if os.name=='nt' else 'clear')
@@ -42,6 +46,9 @@ if os.environ['PATH'].find("iCLS Client")>=0:
 
 from lxml import etree
 from xml.etree.ElementTree import Element, SubElement, Comment, ElementTree
+
+
+# https://pygithub.readthedocs.io/en/latest/github_objects/Commit.html?
 
 def analyse_repo(repository):
     index = 0;
@@ -57,6 +64,10 @@ def analyse_repo(repository):
     SubElement(graphml, 'key', { "for":"edge", "id":"edgeStyle", "yfiles.type":"edgegraphics"})
     SubElement(graphml, 'key', { "for":"node", "id":"attrAuthor", "attr.name":"author", "attr.type":"string"})
     SubElement(graphml, 'key', { "for":"node", "id":"attrComment", "attr.name":"comment", "attr.type":"string"})
+    SubElement(graphml, 'key', { "for":"node", "id":"attrUrl", "attr.name":"url", "attr.type":"string"})
+    SubElement(graphml, 'key', { "for":"node", "id":"attrCommitCommentBody", "attr.name":"commentBody", "attr.type":"string"})
+    SubElement(graphml, 'key', { "for":"node", "id":"attrCommitCommentDate", "attr.name":"commentDate", "attr.type":"string"})
+    SubElement(graphml, 'key', { "for":"node", "id":"attrCommitCommentCreator", "attr.name":"commentCreator", "attr.type":"string"})
     graph = SubElement(graphml, 'graph', {"edgedefault":"directed"})
 
     # initialize color dictionary
@@ -64,11 +75,95 @@ def analyse_repo(repository):
     colorDictionary = {}
     
     # generate network
+    j = 0
+    for i in repository.get_branches():
+        j += 1
+        print("branch #", j)
+        print("name: ", i.name)
+        print("commit sha: ", i.commit.sha)
+        print("commit url: ", i.commit.url)
+        print("")
+        
+
+
+    k = 0
+    for i in repository.get_forks():
+        k += 1
+        print ("fork #", k)
+
+        print ("ID: ", i.id)
+        print ("owner: ", i.owner.login)
+        print("name: ", i.name)
+        print("default branch: ", i.default_branch)
+
+        print ("description: ", i.description)
+        print ("url: ", i.url)
+        print("#forks :", i.forks_count)
+        print("# open issues: ", i.open_issues_count)
+        print("pushed at: ", i.pushed_at.date())
+        print("created at: ", i.created_at.date())
+
+
+        print(i.branches_url) #url kopieren, statt "{/branch}" den branch name eingeben,
+        # wenn im network nach branches gesucht wird können alle angezeigt werden
+        # >> wie bekommt man die automatisch angezeigt?
+        #https://api.github.com/repos/iloveopensource123/currentopen123/branches
+        #https://api.github.com/repos/{user name}/{repo name}/branches
+        #user name: i.owner.login, repo name: i.name
+
+
+        # link = "https://api.github.com/repos/'{username}'/'{reponame}'/branches".format('i.owner.login','i.name')
+        # link = "https://api.github.com/repos/username/reponame/branches", username= {'i.owner.login'}, reponame={'i.name'}
+        
+        # f = requests.get("https://api.github.com/repos/username/reponame/branches", username= {'i.owner.login'}, reponame={'i.name'})
+       
+        # params = {"username": i.owner.login, "reponame":i.name}
+        # f = requests.get("https://api.github.com/repos/username/reponame/branches", params= params)
+
+
+
+
+        import json
+        from lxml import html
+        r = requests.get("https://api.github.com/repos/iloveopensource123/currentopen123/branches")
+
+        j = json.loads(r.text)
+
+        print (j[0]['name'])
+        print (j[0]['commit']['sha'])
+            
+        # funktioniert bei mir noch nicht wegen lxml-Problemen, sobald ich das zum Laufen bekommen hab gucke ich, wie das sinnvoll in den bisherigen
+        # Code integriert werden kann
+
+
+        
+        print(i.commits_url)
+        print("")
+
+
     for i in repository.get_commits():
         currentCommitSha = i.sha
         currentCommitCommitter = i.author.login
+        currentCommitUrl = i.url
+
+        for k in i.get_comments():
+            currentCommitCommentBody = k.body
+            currentCommitCommentDate = k.created_at.date()
+            currentCommitCommentCreator = k.user.login
+
+
+
+
+        
+
         index += 1
         print ("commit ", index, " : ", currentCommitSha)
+
+        # for k in i.get_comments():
+        #     print (k.body)
+        #     print (k.created_at.date())
+        #     print (k.user.login)
+
  
         # update color dictionary
         # if there is no color associated with the user, insert a new random HTML color in the dictionary
@@ -88,7 +183,7 @@ def analyse_repo(repository):
         Shape= SubElement(shapeNode, "y:Shape", {"type":"retangle"})
         Geometry= SubElement(shapeNode, "y:Geometry", {"height":"15.0", "width":"60"})
         Fill = SubElement(shapeNode, "y:Fill", {"color":colorDictionary[currentCommitCommitter], "transparent":"false"})
-        BorderStyle = SubElement(shapeNode, "y:BoderStyle", {"hasColor":"false", "type":"line", "width":"1.0"}) # does not work and i don't know why :-(
+        BorderStyle = SubElement(shapeNode, "y:BorderStyle", {"color":"#ffffff", "type":"line", "width":"1.0"})
         NodeLabel.text = str(currentCommitSha[:7])
 
         # add node attributes
@@ -96,6 +191,18 @@ def analyse_repo(repository):
         attributeData.text = str(i.author.login)
         attributeData = SubElement(node, "data", {"key":"attrComment"})
         attributeData.text = str(i.commit.message)
+        attributeData = SubElement(node, "data", {"key":"attrUrl"})
+        attributeData.text = str(i.url)
+        for k in i.get_comments():
+            attributeData = SubElement(node, "data", {"key":"attrCommitCommentBody"})
+            attributeData.text = str(k.body)
+            attributeData = SubElement(node, "data", {"key":"attrCommitCommentDate"})
+            attributeData.text = str(k.created_at.date())
+            attributeData = SubElement(node, "data", {"key":"attrCommitCommentCreator"})
+            attributeData.text = str(k.user.login)
+
+
+
 
         index2 = 0
         for k in i.parents:
@@ -108,7 +215,10 @@ def analyse_repo(repository):
                 "target":currentCommitSha})
 
     # write the xml file
-    ElementTree(graphml).write("./Results/"+repository.name + "_commit_structure.graphml")
+
+    #change because it doesn`t work for me 
+    # ElementTree(graphml).write("./Results/"+repository.name + "_commit_structure.graphml")
+    ElementTree(graphml).write("commit_structure.graphml")
 
 
 
@@ -124,4 +234,4 @@ if __name__ == "__main__":
     # get the repository object and call analysis function 
     repo = g.get_repo(int(repoId))
     print ("Analysis of repository ",repo.name)
-    analyse_repo(repo)
+analyse_repo(repo)
