@@ -14,6 +14,8 @@
 # install pyGithub with pip install PyGithub
 # install pygithub3 with pip install pygithub3
 # install NetworkX with pip install networkx
+# install Requests
+# install Json
 # sub-directory called Results
 #
 # Parameter :
@@ -34,8 +36,8 @@ import random
 import os
 import sys
 import requests
-
-
+import json
+from lxml import html
 
 # Clear screen
 os.system('cls' if os.name=='nt' else 'clear')
@@ -49,6 +51,7 @@ from xml.etree.ElementTree import Element, SubElement, Comment, ElementTree
 
 
 # https://pygithub.readthedocs.io/en/latest/github_objects/Commit.html?
+
 
 def analyse_repo(repository):
     index = 0;
@@ -74,76 +77,119 @@ def analyse_repo(repository):
     # each user is associated with a node color
     colorDictionary = {}
     
-    # generate network
-    j = 0
-    for i in repository.get_branches():
-        j += 1
-        print("branch #", j)
-        print("name: ", i.name)
-        print("commit sha: ", i.commit.sha)
-        print("commit url: ", i.commit.url)
-        print("")
-        
 
-
-    k = 0
     for i in repository.get_forks():
-        k += 1
-        print ("fork #", k)
 
-        print ("ID: ", i.id)
-        print ("owner: ", i.owner.login)
-        print("name: ", i.name)
-        print("default branch: ", i.default_branch)
-
-        print ("description: ", i.description)
-        print ("url: ", i.url)
-        print("#forks :", i.forks_count)
-        print("# open issues: ", i.open_issues_count)
-        print("pushed at: ", i.pushed_at.date())
-        print("created at: ", i.created_at.date())
-
-
-        print(i.branches_url) #url kopieren, statt "{/branch}" den branch name eingeben,
-        # wenn im network nach branches gesucht wird können alle angezeigt werden
-        # >> wie bekommt man die automatisch angezeigt?
-        #https://api.github.com/repos/iloveopensource123/currentopen123/branches
-        #https://api.github.com/repos/{user name}/{repo name}/branches
-        #user name: i.owner.login, repo name: i.name
-
-
-        # link = "https://api.github.com/repos/'{username}'/'{reponame}'/branches".format('i.owner.login','i.name')
-        # link = "https://api.github.com/repos/username/reponame/branches", username= {'i.owner.login'}, reponame={'i.name'}
-        
-        # f = requests.get("https://api.github.com/repos/username/reponame/branches", username= {'i.owner.login'}, reponame={'i.name'})
-       
-        # params = {"username": i.owner.login, "reponame":i.name}
-        # f = requests.get("https://api.github.com/repos/username/reponame/branches", params= params)
-
-
-
-
-        import json
-        from lxml import html
-        r = requests.get("https://api.github.com/repos/iloveopensource123/currentopen123/branches")
-
+        r = requests.get("https://api.github.com/repos/{}/{}/branches".format(i.owner.login,i.name))
         j = json.loads(r.text)
 
-        print (j[0]['name'])
-        print (j[0]['commit']['sha'])
-            
-        # funktioniert bei mir noch nicht wegen lxml-Problemen, sobald ich das zum Laufen bekommen hab gucke ich, wie das sinnvoll in den bisherigen
-        # Code integriert werden kann
+        # # k: ktes (Dictionary-)Element der Liste l
+        l=0
+
+        from contextlib import suppress
+        with suppress(TypeError):
+            for k, tupel in enumerate((l['name'], l['commit']['sha'] ) for l in j):
+                (name,sha) = tupel
 
 
-        
-        print(i.commits_url)
-        print("")
+            t = requests.get("https://api.github.com/repos/{}/{}/branches/{}".format(i.owner.login,i.name,name))
+            h = json.loads(t.text)
+
+            sha = h['commit']['sha']
+            o = i.get_commit(sha)
+            currentCommitSha = o.sha
+
+            try:
+                currentCommitCommitter = o.author.login
+            except AttributeError:
+                try:
+                    currentCommitCommitter = o.author.name
+                except AttributeError:
+                    currentCommitCommitter = "none"
+            currentCommitUrl = o.url
+
+
+            for k in o.get_comments():
+                currentCommitCommentBody = k.body
+                currentCommitCommentDate = k.created_at.date()
+                print("created at", k.created_at.date())
+                currentCommitCommentCreator = k.user.login
+
+
+
+             # update color dictionary
+            # if there is no color associated with the user, insert a new random HTML color in the dictionary
+            if currentCommitCommitter not in colorDictionary.keys():
+                r = lambda: random.randint(0,255) 
+                g = lambda: random.randint(0,255)
+                b = lambda: random.randint(0,255)
+                colorDictionary[currentCommitCommitter]='#%02X%02X%02X' % (r(),g(),b())
+         
+            # create a new node
+            node = SubElement(graph, "node", {"id" : currentCommitSha})
+     
+            # edit node style
+            nodeStyleData = SubElement(node, "data", {"key":"nodeStyle"})
+            shapeNode = SubElement(nodeStyleData, "y:ShapeNode")
+            NodeLabel = SubElement(shapeNode, "y:NodeLabel")
+            Shape= SubElement(shapeNode, "y:Shape", {"type":"retangle"})
+            Geometry= SubElement(shapeNode, "y:Geometry", {"height":"15.0", "width":"60"})
+            Fill = SubElement(shapeNode, "y:Fill", {"color":colorDictionary[currentCommitCommitter], "transparent":"false"})
+            BorderStyle = SubElement(shapeNode, "y:BorderStyle", {"color":"#99ccff", "type":"line", "width":"3.0"})
+            NodeLabel.text = str(currentCommitSha[:7])
+
+            # add node attributes
+            attributeData = SubElement(node, "data", {"key":"attrAuthor"})
+            try: 
+                attributeData.text = str(o.author.login)
+            except AttributeError:
+                try: 
+                    attributeData.text = str(o.author.name)
+                except AttributeError:
+                    attributeData.text = str("none")
+
+            attributeData = SubElement(node, "data", {"key":"attrComment"})
+            attributeData.text = str(o.commit.message)
+
+            attributeData = SubElement(node, "data", {"key":"attrUrl"})
+            attributeData.text = str(i.url)
+            for k in o.get_comments():
+                attributeData = SubElement(node, "data", {"key":"attrCommitCommentBody"})
+                attributeData.text = str(k.body)
+                attributeData = SubElement(node, "data", {"key":"attrCommitCommentDate"})
+                attributeData.text = str(k.created_at.date())
+                attributeData = SubElement(node, "data", {"key":"attrCommitCommentCreator"})
+                attributeData.text = str(k.user.login)
+
+
+
+
+            index2 = 0
+            for k in o.parents:
+                index2 += 1
+                childCommitSha = k.sha
+                edge = SubElement(graphml, "edge", {
+                    "id":str(index)+"_"+str(index2),
+                    "directed":"true",
+                    "source":childCommitSha,
+                    "target":currentCommitSha,
+                    "color": "#99ccff"})
+
+                
+            index += 1
+            print ("commit ", index, " : ", currentCommitSha)
+
 
 
     for i in repository.get_commits():
         currentCommitSha = i.sha
-        currentCommitCommitter = i.author.login
+        try:
+            currentCommitCommitter = i.author.login
+        except AttributeError:
+            try:
+                currentCommitCommitter = i.author.name
+            except AttributeError:
+                currentCommitCommitter = "none"
         currentCommitUrl = i.url
 
         for k in i.get_comments():
@@ -151,20 +197,10 @@ def analyse_repo(repository):
             currentCommitCommentDate = k.created_at.date()
             currentCommitCommentCreator = k.user.login
 
-
-
-
-        
-
         index += 1
         print ("commit ", index, " : ", currentCommitSha)
 
-        # for k in i.get_comments():
-        #     print (k.body)
-        #     print (k.created_at.date())
-        #     print (k.user.login)
 
- 
         # update color dictionary
         # if there is no color associated with the user, insert a new random HTML color in the dictionary
         if currentCommitCommitter not in colorDictionary.keys():
@@ -187,8 +223,15 @@ def analyse_repo(repository):
         NodeLabel.text = str(currentCommitSha[:7])
 
         # add node attributes
-        attributeData = SubElement(node, "data", {"key":"attrAuthor"})
-        attributeData.text = str(i.author.login)
+
+        try: 
+            attributeData.text = str(i.author.login)
+        except AttributeError:
+            try: 
+                attributeData.text = str(i.author.name)
+            except AttributeError:
+                attributeData.text = str("none")
+
         attributeData = SubElement(node, "data", {"key":"attrComment"})
         attributeData.text = str(i.commit.message)
         attributeData = SubElement(node, "data", {"key":"attrUrl"})
@@ -202,8 +245,6 @@ def analyse_repo(repository):
             attributeData.text = str(k.user.login)
 
 
-
-
         index2 = 0
         for k in i.parents:
             index2 += 1
@@ -214,10 +255,10 @@ def analyse_repo(repository):
                 "source":childCommitSha,
                 "target":currentCommitSha})
 
-    # write the xml file
 
-    #change because it doesn`t work for me 
-    # ElementTree(graphml).write("./Results/"+repository.name + "_commit_structure.graphml")
+       
+
+    # write the xml file
     ElementTree(graphml).write("commit_structure.graphml")
 
 
