@@ -31,7 +31,6 @@
 
 # NOTES:
 #-------
-# - the script is not able to connect one commit to two predecessors
 # - viewing a repository from different users leads to a different allocation of commits in branches
 #   see network view of repo GitHub-Social-Network-Analysis from the perspective of jbon and kerstinopen     
 # - repositories for tests:
@@ -60,7 +59,9 @@ import traceback
 # Enables tracing in the terminal
 debug = True
 # list of commit shas used as a global reference in function get_predecessors
+# and list of the references to their respective branch
 knownCommits = []
+knownCommitsBranches = []
 
 # Clear screen
 os.system('cls' if os.name=='nt' else 'clear')
@@ -89,7 +90,7 @@ def get_all_forks_branches(repository):
             print ("    . "+ branch['name'])
             branchList[branch['name']] = branch['commit']['sha']
     
-        # Gets through recursiveness the branches eventually created in the forks of the current fork
+        # Gets through recursive processing the branches eventually created in the forks of the current fork
         forksCommitsList = get_all_forks_branches(fork)
         for name,sha in forksCommitsList.items():
             branchList[name] = sha
@@ -99,30 +100,16 @@ def get_all_forks_branches(repository):
 ###################################################################################################################
 # get_predecessors
 ###################################################################################################################
-# Returns all predecessors of a given commit 
-# These are stored in a list containing commit shas
-# Predecessors that are already known globally are excluded
-# The returned list starts with the given commit followed by its predecessors until:
-# - there is no predecessor any more
-# - the predecessor is globally known (the globally known predecessor is then the last element of the list)
-def get_predecessors(commit) :
-    index = 0
-    parentList = commit.parents
-    parentListLenght = len(parentList)
-    if parentListLenght==0:
-        return [commit.sha]
-    elif parentListLenght==1:
-        parentSha = parentList[0].sha
-        if parentSha in knownCommits:
-            return [commit.sha, parentSha]
-        else:
-            knownCommits.append(parentList[0].sha)
-            returnList = [commit.sha]
-            returnList.extend(get_predecessors(parentList[0]))
-            return returnList
-    else:
-        print ("ERROR: more than one parent")
+# Discovers all predecessors of a given commit and store them in the global variable known commits
+def get_predecessors(commit, branchName) :
+    currentCommitSha = commit.sha
+    if currentCommitSha not in knownCommits:
+        knownCommits.append(currentCommitSha)
+        knownCommitsBranches.append(branchName)
+        for parent in commit.parents:
+            get_predecessors(parent, branchName)
 
+            
 ###################################################################################################################
 # getRandomColor
 ###################################################################################################################
@@ -135,7 +122,7 @@ def getRandomColor():
 ###################################################################################################################
 # createGraphML
 ###################################################################################################################
-def createGraphML(branchesContents, repository):
+def createGraphML(repository):
     # Creates the GraphML header
     graphml = Element('graphml', {
             "xmlns":"http://graphml.graphdrawing.org/xmlns",
@@ -159,85 +146,80 @@ def createGraphML(branchesContents, repository):
     userColorDictionary = {}
     branchColorDictionary = {}
     
-    for branchName,commitsList in branchesContents.items():
+    for index in range(0,len(knownCommits)):
         
-        print (" - creating branch "+branchName)
+        # getting input information for the current commit
+        currentCommitSha = knownCommits[index]
+        currentCommitBranchName = knownCommitsBranches[index]
+        currentCommit = repo.get_commit(currentCommitSha)
+        print ("   . creating node "+currentCommitSha)
+        
         # Updates branch color dictionary
-        branchColorDictionary[branchName]=getRandomColor()
-    
-        # remember last processed commit in order to create links between subsequent commits
-        lastProcessedCommit = None
-    
-        for currentCommitSha in commitsList:
-        
-            print ("   . creating node "+currentCommitSha)
-            # Gets the commit object out of its sha
-            currentCommit = repo.get_commit(currentCommitSha)
-            
-            # Gets committer's name
+        if currentCommitBranchName not in branchColorDictionary.keys():
+            branchColorDictionary[currentCommitBranchName]=getRandomColor()
+         
+        # Gets committer's name
+        try:
+            currentCommitCommitter = currentCommit.author.login
+        except :
             try:
-                currentCommitCommitter = currentCommit.author.login
+                currentCommitCommitter = currentCommit.author.name
             except :
-                try:
-                    currentCommitCommitter = currentCommit.author.name
-                except :
-                    currentCommitCommitter = "none"
-         
-            # Gets commit's URL
-            currentCommitUrl = currentCommit.url
-         
-            # update color dictionary
-            # if there is no color associated with the user, insert a new random HTML color in the dictionary
-            if currentCommitCommitter not in userColorDictionary.keys():
-                userColorDictionary[currentCommitCommitter]=getRandomColor()
-         
-            # create a new node
-            node = SubElement(graph, "node", {"id" : currentCommitSha})
+                currentCommitCommitter = "none"
+     
+        # Gets commit's URL
+        currentCommitUrl = currentCommit.url
+     
+        # update color dictionary
+        # if there is no color associated with the user, insert a new random HTML color in the dictionary
+        if currentCommitCommitter not in userColorDictionary.keys():
+            userColorDictionary[currentCommitCommitter]=getRandomColor()
+     
+        # create a new node
+        node = SubElement(graph, "node", {"id" : currentCommitSha})
 
-            # edit node style
-            nodeStyleData = SubElement(node, "data", {"key":"nodeStyle"})
-            shapeNode = SubElement(nodeStyleData, "y:ShapeNode")
-            NodeLabel = SubElement(shapeNode, "y:NodeLabel")
-            Shape= SubElement(shapeNode, "y:Shape", {"type":"retangle"})
-            Geometry= SubElement(shapeNode, "y:Geometry", {"height":"15.0", "width":"60"})
-            Fill = SubElement(shapeNode, "y:Fill", {"color":userColorDictionary[currentCommitCommitter], "transparent":"false"})
-            BorderStyle = SubElement(shapeNode, "y:BorderStyle", {"color":branchColorDictionary[branchName], "type":"line", "width":"3.0"})
-            NodeLabel.text = str(currentCommitSha[:7])
+        # edit node style
+        nodeStyleData = SubElement(node, "data", {"key":"nodeStyle"})
+        shapeNode = SubElement(nodeStyleData, "y:ShapeNode")
+        NodeLabel = SubElement(shapeNode, "y:NodeLabel")
+        Shape= SubElement(shapeNode, "y:Shape", {"type":"retangle"})
+        Geometry= SubElement(shapeNode, "y:Geometry", {"height":"15.0", "width":"60"})
+        Fill = SubElement(shapeNode, "y:Fill", {"color":userColorDictionary[currentCommitCommitter], "transparent":"false"})
+        BorderStyle = SubElement(shapeNode, "y:BorderStyle", {"color":branchColorDictionary[currentCommitBranchName], "type":"line", "width":"3.0"})
+        NodeLabel.text = str(currentCommitSha[:7])
 
-            # add node attributes
-            attributeData = SubElement(node, "data", {"key":"attrAuthor"})
+        # add node attributes
+        attributeData = SubElement(node, "data", {"key":"attrAuthor"})
+        try: 
+            attributeData.text = str(currentCommit.author.login)
+        except AttributeError:
             try: 
-                attributeData.text = str(currentCommit.author.login)
+                attributeData.text = str(currentCommit.author.name)
             except AttributeError:
-                try: 
-                    attributeData.text = str(currentCommit.author.name)
-                except AttributeError:
-                    attributeData.text = str("none")
+                attributeData.text = str("none")
 
-            attributeData = SubElement(node, "data", {"key":"attrComment"})
-            attributeData.text = str(currentCommit.commit.message)
+        attributeData = SubElement(node, "data", {"key":"attrComment"})
+        attributeData.text = str(currentCommit.commit.message)
 
-            attributeData = SubElement(node, "data", {"key":"attrUrl"})
-            attributeData.text = str(currentCommit.url)
+        attributeData = SubElement(node, "data", {"key":"attrUrl"})
+        attributeData.text = str(currentCommit.url)
 
-            for k in currentCommit.get_comments():
-                attributeData = SubElement(node, "data", {"key":"attrCommitCommentBody"})
-                attributeData.text = str(k.body)
-                attributeData = SubElement(node, "data", {"key":"attrCommitCommentDate"})
-                attributeData.text = str(k.created_at.date())
-                attributeData = SubElement(node, "data", {"key":"attrCommitCommentCreator"})
-                attributeData.text = str(k.user.login)
+        for k in currentCommit.get_comments():
+            attributeData = SubElement(node, "data", {"key":"attrCommitCommentBody"})
+            attributeData.text = str(k.body)
+            attributeData = SubElement(node, "data", {"key":"attrCommitCommentDate"})
+            attributeData.text = str(k.created_at.date())
+            attributeData = SubElement(node, "data", {"key":"attrCommitCommentCreator"})
+            attributeData.text = str(k.user.login)
 
-            if lastProcessedCommit != None:
-                edge = SubElement(graph, "edge", {
-                "id":currentCommitSha[:7]+"_"+lastProcessedCommit[:7],
-                "directed":"true",
-                "source":currentCommitSha,
-                "target":lastProcessedCommit,
-                "color": "#99ccff"})
+        for predecessor in currentCommit.parents:
+            edge = SubElement(graph, "edge", {
+            "id":currentCommitSha[:7]+"_"+predecessor.sha[:7],
+            "directed":"true",
+            "source":currentCommitSha,
+            "target":predecessor.sha,
+            "color": "#99ccff"})
 
-            lastProcessedCommit = currentCommitSha
-                
     # write the GraphML file in the subdirectory "/results"
     ElementTree(graphml).write("./Results/"+repository.name +"commit_structure.graphml")
     
@@ -258,15 +240,13 @@ if __name__ == "__main__":
     repo = g.get_repo(int(repoId))
     print ("\nAnalysis of repository " + repo.name)
 
-    # Initializes the dictionary used to store all commits of all branches
-    # Commits are stored in a dictionary containing lists of commits shas (values) referred by the branch names (key)
-    branchesContents = {}
-    
-    # Gets all commits of the main branch of the original repository
+    # Gets the last commit of the master branch of the original repository and looks for predecessors
+    commitsMasterBranch = []
     for commit in repo.get_commits():
-       knownCommits.append(commit.sha)
-    print ("\n" + str(len(knownCommits)) + " commits found in the master branch")
-    branchesContents['OriginalMaster']= knownCommits
+       commitsMasterBranch.append(commit)
+    get_predecessors(commitsMasterBranch[0], 'origin')
+    numberKnownCommits = len(knownCommits)
+    print ("\n" + str(numberKnownCommits) + " commits found in the master branch (last commit: " + knownCommits[-1] + ")")
     
     # Gets all branches of the forks of the given repository
     print ("\nLooking for other branches ")
@@ -277,13 +257,14 @@ if __name__ == "__main__":
     print ("\nParsing branches")
     for name, sha in branchReferences.items():
         print ("  - parsing branch " + name + " starting from commit " + sha)
-        predecessors = get_predecessors(repo.get_commit(sha))
-        branchesContents[name] = predecessors
-        print ("    . " + str(len(predecessors)) + " predecessors found")
+        get_predecessors(repo.get_commit(sha), name)
+        newNumberKnownCommits = len(knownCommits)
+        print ("    . " + str(newNumberKnownCommits-numberKnownCommits) + " new predecessors found")
+        numberKnownCommits = newNumberKnownCommits
 
     # Generate the GraphML file out of the branches commits
     print ("\nBuiding GraphML ")
-    createGraphML(branchesContents, repo)
+    createGraphML(repo)
     
     print ("\ndone. \n")
     
