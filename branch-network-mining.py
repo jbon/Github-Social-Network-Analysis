@@ -106,8 +106,11 @@ def get_predecessors(commit, branchName) :
     if currentCommitSha not in knownCommits:
         knownCommits.append(currentCommitSha)
         knownCommitsBranches.append(branchName)
-        for parent in commit.parents:
-            get_predecessors(parent, branchName)
+# this is quicker, but may not lead to a complete list of commits (and I don't understand why)
+#        for parent in commit.parents:
+#            get_predecessors(parent, branchName)
+    for parent in commit.parents:
+        get_predecessors(parent, branchName)
 
             
 ###################################################################################################################
@@ -138,6 +141,7 @@ def createGraphML(repository):
     SubElement(graphml, 'key', { "for":"node", "id":"attrCommitCommentBody", "attr.name":"commentBody", "attr.type":"string"})
     SubElement(graphml, 'key', { "for":"node", "id":"attrCommitCommentDate", "attr.name":"commentDate", "attr.type":"string"})
     SubElement(graphml, 'key', { "for":"node", "id":"attrCommitCommentCreator", "attr.name":"commentCreator", "attr.type":"string"})
+    SubElement(graphml, 'key', { "for":"node", "id":"attrBranch", "attr.name":"branch", "attr.type":"string"})
     graph = SubElement(graphml, 'graph', {"edgedefault":"directed"})
 
     # Initializes the color dictionaries
@@ -204,6 +208,10 @@ def createGraphML(repository):
         attributeData = SubElement(node, "data", {"key":"attrUrl"})
         attributeData.text = str(currentCommit.url)
 
+        attributeData = SubElement(node, "data", {"key":"attrBranch"})
+        attributeData.text = str(currentCommitBranchName)
+
+        # BoJ@ScK : this is not working
         for k in currentCommit.get_comments():
             attributeData = SubElement(node, "data", {"key":"attrCommitCommentBody"})
             attributeData.text = str(k.body)
@@ -214,11 +222,11 @@ def createGraphML(repository):
 
         for predecessor in currentCommit.parents:
             edge = SubElement(graph, "edge", {
-            "id":currentCommitSha[:7]+"_"+predecessor.sha[:7],
+            "id":predecessor.sha[:7]+"_"+currentCommitSha[:7],
             "directed":"true",
-            "source":currentCommitSha,
-            "target":predecessor.sha,
-            "color": "#99ccff"})
+            "source":predecessor.sha,
+            "target":currentCommitSha,
+            "color": branchColorDictionary[currentCommitBranchName]})
 
     # write the GraphML file in the subdirectory "/results"
     ElementTree(graphml).write("./Results/"+repository.name +"commit_structure.graphml")
@@ -238,9 +246,9 @@ if __name__ == "__main__":
     
     # Gets the repository object from the given ID
     repo = g.get_repo(int(repoId))
-    print ("\nAnalysis of repository " + repo.name)
 
     # Gets the last commit of the master branch of the original repository and looks for predecessors
+    print ("\nLooking for commits in repository " + repo.name)
     commitsMasterBranch = []
     for commit in repo.get_commits():
        commitsMasterBranch.append(commit)
@@ -249,12 +257,12 @@ if __name__ == "__main__":
     print ("\n" + str(numberKnownCommits) + " commits found in the master branch (last commit: " + knownCommits[-1] + ")")
     
     # Gets all branches of the forks of the given repository
-    print ("\nLooking for other branches ")
+    print ("\nLooking for branches in forked repositories")
     branchReferences = get_all_forks_branches(repo)
     print (str(len(branchReferences)) + " branches found")
     
     # Gets all commits of all branches
-    print ("\nParsing branches")
+    print ("\nLooking for commits in branches of forked repositories")
     for name, sha in branchReferences.items():
         print ("  - parsing branch " + name + " starting from commit " + sha)
         get_predecessors(repo.get_commit(sha), name)
