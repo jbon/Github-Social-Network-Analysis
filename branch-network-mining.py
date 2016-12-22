@@ -73,10 +73,11 @@ if os.environ['PATH'].find("iCLS Client")>=0:
 # get_all_forks_branches
 ###################################################################################################################
 # Returns all branches of all forks of a repository
+# stored in a dictionary as follows: {forkOwner:{branchName:shaOfLastCommit}}
 # Branches are characterized by their name (key) and the sha of the last commit (value)
-def get_all_forks_branches(repository):
+def get_forks_and_branches(repository):
     # Initializing the dictionary containing all branches to be discovered 
-    branchList = {}
+    forkList = {}
     
     # get all commits in the forks of the given repository
     for fork in repository.get_forks():
@@ -86,16 +87,22 @@ def get_all_forks_branches(repository):
         branchesInJsonFormat = requests.get("https://api.github.com/repos/{}/{}/branches".format(fork.owner.login,fork.name))
         parsedBranches = json.loads(branchesInJsonFormat.text)
 
+        # Save all branches of the current fork in the dictionary "branchList"
+        branchList = {}
+        # BoJ Reminder - to be improved 
         for branch in parsedBranches:
-            print ("    . "+ branch['name'])
-            branchList[branch['name']] = branch['commit']['sha']
+            try: 
+                print ("    . " + branch['name'])
+                branchList[branch['name']] = branch['commit']['sha']
+            except :
+                print ("error : " + branch)
+        # Adds the current fork and its branches in the dictionary "forkList"
+        forkList[fork.owner.login] = branchList
     
-        # Gets through recursive processing the branches eventually created in the forks of the current fork
-        forksCommitsList = get_all_forks_branches(fork)
-        for name,sha in forksCommitsList.items():
-            branchList[name] = sha
+        # Gets through recursive processing the eventual forks of the current fork
+        forkList.update(get_forks_and_branches(fork))
 
-    return branchList
+    return forkList
 
 ###################################################################################################################
 # get_predecessors
@@ -106,12 +113,8 @@ def get_predecessors(commit, branchName) :
     if currentCommitSha not in knownCommits:
         knownCommits.append(currentCommitSha)
         knownCommitsBranches.append(branchName)
-# this is quicker, but may not lead to a complete list of commits (and I don't understand why)
-#        for parent in commit.parents:
-#            get_predecessors(parent, branchName)
-    for parent in commit.parents:
-        get_predecessors(parent, branchName)
-
+        for parent in commit.parents:
+            get_predecessors(parent, branchName)
             
 ###################################################################################################################
 # getRandomColor
@@ -142,6 +145,7 @@ def createGraphML(repository):
     SubElement(graphml, 'key', { "for":"node", "id":"attrCommitCommentDate", "attr.name":"commentDate", "attr.type":"string"})
     SubElement(graphml, 'key', { "for":"node", "id":"attrCommitCommentCreator", "attr.name":"commentCreator", "attr.type":"string"})
     SubElement(graphml, 'key', { "for":"node", "id":"attrBranch", "attr.name":"branch", "attr.type":"string"})
+
     graph = SubElement(graphml, 'graph', {"edgedefault":"directed"})
 
     # Initializes the color dictionaries
@@ -222,11 +226,14 @@ def createGraphML(repository):
 
         for predecessor in currentCommit.parents:
             edge = SubElement(graph, "edge", {
-            "id":predecessor.sha[:7]+"_"+currentCommitSha[:7],
+            "id":currentCommitSha[:7]+"_"+predecessor.sha[:7],
             "directed":"true",
             "source":predecessor.sha,
-            "target":currentCommitSha,
-            "color": branchColorDictionary[currentCommitBranchName]})
+            "target":currentCommitSha})
+            edgeStyleData = SubElement(edge, "data", {"key":"edgeStyle"})
+            shapeEdge = SubElement(edgeStyleData, "y:PolyLineEdge")
+            SubElement(shapeEdge, "y:LineStyle", {"color":branchColorDictionary[currentCommitBranchName], "type":"line", "width":"2.0"})
+            SubElement(shapeEdge, "y:Arrows", {"source":"none", "target":"standard"})
 
     # write the GraphML file in the subdirectory "/results"
     ElementTree(graphml).write("./Results/"+repository.name +"commit_structure.graphml")
@@ -240,42 +247,43 @@ if __name__ == "__main__":
     repoId = sys.argv[1]
 
     # User login
-    userlogin = input("Login: Enter your username: ")
-    password = getpass.getpass("Login: Enter your password: ")
+    userlogin = input("Login: \n  Enter your username: ")
+    password = getpass.getpass("  Enter your password: ")
     g = pygithub3.Github( userlogin, password )
     
     # Gets the repository object from the given ID
     repo = g.get_repo(int(repoId))
+    print ("\nGetting all commits of the root repository " + repo.name)
 
     # Gets the last commit of the master branch of the original repository and looks for predecessors
-    print ("\nLooking for commits in repository " + repo.name)
     commitsMasterBranch = []
     for commit in repo.get_commits():
        commitsMasterBranch.append(commit)
     get_predecessors(commitsMasterBranch[0], 'origin')
     numberKnownCommits = len(knownCommits)
-    print ("\n" + str(numberKnownCommits) + " commits found in the master branch (last commit: " + knownCommits[-1] + ")")
+    print ("\n" + str(numberKnownCommits) + " commits found in the master branch (last commit: " + knownCommits[0] + ")")
     
     # Gets all branches of the forks of the given repository
     print ("\nLooking for branches in forked repositories")
-    branchReferences = get_all_forks_branches(repo)
-    print (str(len(branchReferences)) + " branches found")
+    forksAndBranches = get_forks_and_branches(repo)
+    print ("\n" + str(len(forksAndBranches)) + " forks found")
     
     # Gets all commits of all branches
-    print ("\nLooking for commits in branches of forked repositories")
-    for name, sha in branchReferences.items():
-        print ("  - parsing branch " + name + " starting from commit " + sha)
-        get_predecessors(repo.get_commit(sha), name)
-        newNumberKnownCommits = len(knownCommits)
-        print ("    . " + str(newNumberKnownCommits-numberKnownCommits) + " new predecessors found")
-        numberKnownCommits = newNumberKnownCommits
+    print ("\nLooking for commits in all branches of all forks")
+    for forkName, branchList in forksAndBranches.items():
+        print ("  - branches of " + forkName + "'s fork")
+        for branchName, sha in branchList.items():
+            print ("    . parsing branch " + branchName + " starting from commit " + sha)
+            get_predecessors(repo.get_commit(sha), branchName)
+            newNumberKnownCommits = len(knownCommits)
+            print ("      -> " + str(newNumberKnownCommits-numberKnownCommits) + " new predecessors found")
+            numberKnownCommits = newNumberKnownCommits
 
     # Generate the GraphML file out of the branches commits
     print ("\nBuiding GraphML ")
     createGraphML(repo)
     
     print ("\ndone. \n")
-    
     
     
     
