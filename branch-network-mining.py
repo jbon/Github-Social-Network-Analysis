@@ -54,6 +54,9 @@ import sys
 import requests
 import json
 import traceback 
+import datetime
+
+from datetime import timedelta
 
 # GLOBAL VARIABLES
 # Enables tracing in the terminal
@@ -250,6 +253,10 @@ if __name__ == "__main__":
     userlogin = input("Login: \n  Enter your username: ")
     password = getpass.getpass("  Enter your password: ")
     g = pygithub3.Github( userlogin, password )
+
+    # getting time for calculating processing time
+    startTime = datetime.datetime.now()
+    print ("\nProcessing starts at "+ startTime.strftime('%H:%M:%S'))
     
     # Gets the repository object from the given ID
     repo = g.get_repo(int(repoId))
@@ -283,7 +290,11 @@ if __name__ == "__main__":
     print ("\nBuiding GraphML ")
     createGraphML(repo)
     
+    # Displays processing time
+    endTime = datetime.datetime.now()
+    processingTime = endTime - startTime
     print ("\ndone. \n")
+    print ("Analysis processed in "+ str(processingTime))
     
     
     
