@@ -148,6 +148,7 @@ def createGraphML(repository):
     SubElement(graphml, 'key', { "for":"node", "id":"attrCommitCommentDate", "attr.name":"commentDate", "attr.type":"string"})
     SubElement(graphml, 'key', { "for":"node", "id":"attrCommitCommentCreator", "attr.name":"commentCreator", "attr.type":"string"})
     SubElement(graphml, 'key', { "for":"node", "id":"attrBranch", "attr.name":"branch", "attr.type":"string"})
+    SubElement(graphml, 'key', { "for":"node", "id":"attrTimestamp", "attr.name":"timestamp", "attr.type":"string"})
 
     graph = SubElement(graphml, 'graph', {"edgedefault":"directed"})
 
@@ -217,6 +218,9 @@ def createGraphML(repository):
 
         attributeData = SubElement(node, "data", {"key":"attrBranch"})
         attributeData.text = str(currentCommitBranchName)
+
+        attributeData = SubElement(node, "data", {"key":"attrTimestamp"})
+        attributeData.text = str(currentCommit.commit.committer.date)
 
         # BoJ@ScK : this is not working
         for k in currentCommit.get_comments():
