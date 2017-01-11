@@ -104,11 +104,16 @@ def get_predecessors(commit, branchName) :
         commitDict['date'] = commit.commit.committer.date.strftime('%d-%m-%Y')
 
         # Gets committer's name
+        # here we make no difference between the roles of the committer and those of the author
         try:
-            commitDict['committer'] = commit.author.login
+            commitDict['committer'] = commit.committer.login
         except :
-            commitDict['committer'] = "none"
-            print ("warning: commit "+commit.sha[:7]+" has no committer")
+            try:
+                commitDict['committer'] = commit.author.login
+            except:
+                commmitInJsonFormat = requests.get(commit.url)
+                parsedCommit = json.loads(commmitInJsonFormat.text)
+                commitDict['committer'] = parsedCommit['commit']['committer']['name']
         
         # Gets the list of predecessors' shas
         parents = []
@@ -277,7 +282,7 @@ def mine_repo(repo):
     # Generates the CSV and GraphML output files
     print ("\nextract CSV file")
     exportCSV(repo.name)
-    print ("\nextract GraphML file")
+    print ("extract GraphML file")
     exportGraphML(repo.name)
     
     # Displays processing time

@@ -2,4 +2,10 @@
 .pydevproject
 .DS_Store
 *.graphml
+*.csv
+*.bat
+*.txt
+/_Input/*
+/_Results/*
 /_old/*
+/__pycache__/*
